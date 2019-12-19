@@ -1,31 +1,7 @@
-/*
- *  --- Revised 3-Clause BSD License ---
- *  Copyright (C) 2016-2019, SEMTECH (International) AG.
- *  All rights reserved.
- *
- *  Redistribution and use in source and binary forms, with or without modification,
- *  are permitted provided that the following conditions are met:
- *
- *      * Redistributions of source code must retain the above copyright notice,
- *        this list of conditions and the following disclaimer.
- *      * Redistributions in binary form must reproduce the above copyright notice,
- *        this list of conditions and the following disclaimer in the documentation
- *        and/or other materials provided with the distribution.
- *      * Neither the name of the copyright holder nor the names of its contributors
- *        may be used to endorse or promote products derived from this software
- *        without specific prior written permission.
- *
- *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- *  ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- *  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- *  DISCLAIMED. IN NO EVENT SHALL SEMTECH BE LIABLE FOR ANY DIRECT, INDIRECT,
- *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- *  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- *  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
- *  LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- *  OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- *  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// Copyright (C) 2016-2019 Semtech (International) AG. All rights reserved.
+//
+// This file is subject to the terms and conditions defined in file 'LICENSE',
+// which is part of this source code package.
 
 #if defined(CFG_lgw1)
 
@@ -37,6 +13,8 @@
 #endif // defined(CFG_linux)
 #include "sx1301conf.h"
 #include "lgw/loragw_reg.h"
+
+#define SX1301_RFE_MAX 400000  // Max if offset 400kHz
 
 static void parse_tx_gain_lut (ujdec_t* D, struct lgw_tx_gain_lut_s* txlut) {
     int slot;
@@ -115,7 +93,7 @@ static int parse_bandwidth (ujdec_t* D) {
     case 250000: return BW_250KHZ; break;
     case 125000: return BW_125KHZ; break;
     default:
-        uj_error(D, "Illegal bandwidth value: %ld (must be 125000, 250000, or 500000)");
+        uj_error(D, "Illegal bandwidth value: %ld (must be 125000, 250000, or 500000)", bw);
         return BW_UNDEFINED; // NOT REACHED
     }
 }
@@ -351,7 +329,75 @@ int sx1301conf_parse_setup (struct sx1301conf* sx1301conf, int slaveIdx,
 }
 
 
+static void sx1301conf_challoc_cb (void* ctx, challoc_t* ch, int flag) {
+    if( ctx == NULL ) return;
+    struct sx1301conf* sx1301conf = (struct sx1301conf*)ctx;
+
+    switch( flag ) {
+    case CHALLOC_START: {
+        break;
+    }
+    case CHALLOC_CHIP_START: {
+        break;
+    }
+    case CHALLOC_CH: {
+        if( ch->chip > 0 ) return;
+
+        sx1301conf->rfconf[ch->rff].freq_hz = ch->rff_freq;
+        sx1301conf->rfconf[ch->rff].enable  = true;
+
+        struct lgw_conf_rxif_s * ifconf = &sx1301conf->ifconf[ch->chan];
+        ifconf->freq_hz   = ch->chdef.freq; // Write full frequency for now
+        ifconf->rf_chain  = ch->rff;
+
+        if( ch->chan < LGW_IF_CHAIN_NB-2 ) {
+            // MultiSF
+            ifconf->bandwidth = BW125;
+            ifconf->datarate  = DR_LORA_MULTI;
+            ifconf->enable    = true;
+        }
+        else if( ch->chan == LGW_IF_CHAIN_NB-1 ) {
+            // FSK
+            ifconf->bandwidth = BW_UNDEFINED;
+            ifconf->datarate  = 50000;
+            ifconf->enable    = true;
+            ifconf->sync_word = 0;
+        }
+        else if( ch->chan == LGW_IF_CHAIN_NB-2 ) {
+            // Fast LoRa
+            ifconf->bandwidth = ral_rps2bw(rps_make(ch->chdef.rps.maxSF, ch->chdef.rps.bw));
+            ifconf->datarate  = ral_rps2sf(rps_make(ch->chdef.rps.maxSF, ch->chdef.rps.bw));
+            ifconf->enable    = true;
+        }
+        break;
+    }
+    case CHALLOC_CHIP_DONE: {
+        // Convert full if frequency to frequency offset
+        if( !ch->chans ) break;
+        for( int ch=0; ch<LGW_IF_CHAIN_NB; ch++ ) {
+            if( sx1301conf->ifconf[ch].enable && sx1301conf->ifconf[ch].freq_hz && abs(sx1301conf->ifconf[ch].freq_hz) > SX1301_RFE_MAX ) {
+                sx1301conf->ifconf[ch].freq_hz = sx1301conf->ifconf[ch].freq_hz -
+                    sx1301conf->rfconf[sx1301conf->ifconf[ch].rf_chain].freq_hz;
+            }
+        }
+        break;
+    }
+    case CHALLOC_DONE: {
+        break;
+    }
+    }
+}
+
+int sx1301conf_challoc (struct sx1301conf* sx1301conf, chdefl_t* upchs) {
+    return ral_challoc(upchs, sx1301conf_challoc_cb, sx1301conf);
+}
+
+
 int sx1301conf_start (struct sx1301conf* sx1301conf, u4_t cca_region) {
+    str_t errmsg = "";
+    lgw_stop();
+    LOG(MOD_RAL|INFO,"Lora gateway library version: %s", lgw_version_info());
+
 #if defined(CFG_linux)
     u4_t pids[1];
     int n = sys_findPids(sx1301conf->device, pids, SIZE_ARRAY(pids));
@@ -359,35 +405,15 @@ int sx1301conf_start (struct sx1301conf* sx1301conf, u4_t cca_region) {
         rt_fatal("Radio device '%s' in use by process: %d%s", sx1301conf->device, pids[0], n>1?".. (and others)":"");
 #endif // defined(CFG_linux)
 
-    lgw_stop();
-    LOG(MOD_RAL|INFO,"Lora gateway library version: %s", lgw_version_info());
-
-    if( lgw_board_setconf(sx1301conf->boardconf) != LGW_HAL_SUCCESS ) {
-        LOG(MOD_RAL|ERROR,"lgw_board_setconf failed");
-        goto fail;
-    }
-    if( sx1301conf->txlut.size > 0) {
-        if( lgw_txgain_setconf(&sx1301conf->txlut) != LGW_HAL_SUCCESS ) {
-            LOG(MOD_RAL|INFO,"lgw_txgain_setconf failed");
-            goto fail;
-        }
-    }
-    for( int i=0; i<LGW_RF_CHAIN_NB; i++ ) {
-        if( lgw_rxrf_setconf(i, sx1301conf->rfconf[i]) != LGW_HAL_SUCCESS ) {
-            LOG(MOD_RAL|INFO,"lgw_rxrf_setconf(%d) failed", i);
-            goto fail;
-        }
-    }
-    for( int i=0; i<LGW_IF_CHAIN_NB; i++ ) {
-        if( lgw_rxif_setconf(i, sx1301conf->ifconf[i]) != LGW_HAL_SUCCESS ) {
-            LOG(MOD_RAL|INFO,"lgw_rxif_setconf(%d) failed", i);
-            goto fail;
-        }
-    }
-
-    if( cca_region && !setup_LBT(sx1301conf, cca_region) ) {
-        goto fail;
-    }
+    LOG(MOD_RAL|VERBOSE,"Connecting to device: %s", sx1301conf->device);
+#if defined(CFG_smtcpico)
+    // Picocell needs some time to start up from reset before we can connect
+    sys_usleep(rt_millis(250));
+    log_flushIO();  // lgw_connect might block - make sure log output is flushed 
+    lgw_connect(sx1301conf->device);
+    sys_usleep(rt_millis(250));
+    // Force a reset because MCU software may be in a weird state when we connect the first time
+#endif
 
     if( log_shallLog(MOD_RAL|VERBOSE) ) {
         LOG(MOD_RAL|DEBUG, "SX1301 txlut table (%d entries)", sx1301conf->txlut.size);
@@ -402,7 +428,7 @@ int sx1301conf_start (struct sx1301conf* sx1301conf, u4_t cca_region) {
         }
         for( int i=0; i<LGW_RF_CHAIN_NB; i++ ) {
             LOG(MOD_RAL|VERBOSE,
-                "SX1301 rxrfchain %d: enable=%d freq=%d rssi_offset=%f type=%d tx_enable=%d tx_notch_freq=%d", i,
+                "SX1301 rxrfchain %d: enable=%d freq=%F rssi_offset=%f type=%d tx_enable=%d tx_notch_freq=%d", i,
                 sx1301conf->rfconf[i].enable,
                 sx1301conf->rfconf[i].freq_hz,
                 sx1301conf->rfconf[i].rssi_offset,
@@ -432,15 +458,85 @@ int sx1301conf_start (struct sx1301conf* sx1301conf, u4_t cca_region) {
         }
     }
 
-    LOG(MOD_RAL|INFO, "Station device: %s (PPS capture %sabled)", sx1301conf->device, sx1301conf->pps ? "en":"dis");
-    lgwx_device_mode = sys_deviceMode;
-    int err = lgw_start();
-    if( err == LGW_HAL_SUCCESS ) {
-        lgw_reg_w(LGW_GPS_EN, sx1301conf->pps ? 1 : 0);
-        return 1;
+    if( lgw_board_setconf(sx1301conf->boardconf) != LGW_HAL_SUCCESS ) {
+        errmsg = "lgw_board_setconf";
+        goto fail;
     }
-    LOG(MOD_RAL|ERROR, "lgw_start failed: %s", sx1301conf->device);
+    if( sx1301conf->txlut.size > 0) {
+        if( lgw_txgain_setconf(&sx1301conf->txlut) != LGW_HAL_SUCCESS ) {
+            errmsg = "lgw_txgain_setconf";
+            goto fail;
+        }
+    }
+    for( int i=0; i<LGW_RF_CHAIN_NB; i++ ) {
+        if( lgw_rxrf_setconf(i, sx1301conf->rfconf[i]) != LGW_HAL_SUCCESS ) {
+            LOG(MOD_RAL|ERROR,"lgw_rxrf_setconf(%d) failed", i);
+            errmsg = "lgw_rxrf_setconf";
+            goto fail;
+        }
+    }
+    for( int i=0; i<LGW_IF_CHAIN_NB; i++ ) {
+        if( lgw_rxif_setconf(i, sx1301conf->ifconf[i]) != LGW_HAL_SUCCESS ) {
+            LOG(MOD_RAL|ERROR,"lgw_rxif_setconf(%d) failed", i);
+            errmsg = "lgw_rxif_setconf";
+            goto fail;
+        }
+    }
+
+    if( cca_region && !setup_LBT(sx1301conf, cca_region) ) {
+        errmsg = "setup_LBT";
+        goto fail;
+    }
+
+    LOG(MOD_RAL|VERBOSE, "Station device: %s (PPS capture %sabled)", sx1301conf->device, sx1301conf->pps ? "en":"dis");
+    log_flushIO();  // flush output since lgw_start may block for quite some time on some concentrators
+    lgwx_device_mode = sys_deviceMode;
+    ustime_t t0 = rt_getTime();
+    int err = lgw_start();
+    if( err != LGW_HAL_SUCCESS ) {
+        errmsg = "lgw_start";
+        goto fail;
+    }
+    if( lgw_reg_w(LGW_GPS_EN, sx1301conf->pps ? 1 : 0) != LGW_REG_SUCCESS ) {
+        errmsg = "lgw_reg_w(LGW_GPS_EN)";
+        goto fail;
+    }
+    LOG(MOD_RAL|VERBOSE, "Concentrator started (%~T)", rt_getTime()- t0);
+#if defined(CFG_smtcpico)
+    {
+        // Avoid timing issues with picocell MCU firmware - re-adjusts time after first TX
+        // (see cmdUSB.cpp Sx1308.firsttx). Seems to have a bad influence on station tracking
+        // local MCU clock vs concentrator microsecond ticks.
+        // Send a dummy frame to get into a stable state.
+        struct lgw_pkt_tx_s pkt_tx;
+        memset(&pkt_tx, 0, sizeof(pkt_tx));
+        pkt_tx.tx_mode = IMMEDIATE;
+        pkt_tx.preamble = 8;
+        pkt_tx.modulation = MOD_LORA;
+        pkt_tx.datarate   = DR_LORA_SF7;
+        pkt_tx.bandwidth     = BW_125KHZ;
+        pkt_tx.freq_hz    = sx1301conf->rfconf[0].freq_hz;
+        pkt_tx.count_us   = 0;
+        pkt_tx.rf_chain   = 0;
+        pkt_tx.rf_power   = (float)0.0;
+        pkt_tx.coderate   = CR_LORA_4_5;
+        pkt_tx.invert_pol = true;
+        pkt_tx.no_crc     = 1;
+        pkt_tx.no_header  = false;
+        pkt_tx.size       = 1;
+        pkt_tx.preamble   = 8;
+        pkt_tx.payload[0] = 0xE0;  // proprietary LoRaWAN frame
+        // NOTE: nocca not possible to implement with current libloragw API
+        int err = lgw_send(pkt_tx);
+        if( err != LGW_HAL_SUCCESS ) {
+            errmsg = "lgw_send";
+            goto fail;
+        }
+    }
+#endif // defined(CFG_smtcpico)
+    return 1;
  fail:
+    LOG(MOD_RAL|ERROR, "Concentrator start failed: %s", errmsg);
     return 0;
 }
 
