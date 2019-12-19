@@ -1,3 +1,7 @@
+# Copyright (C) 2016-2019 Semtech (International) AG. All rights reserved.
+#
+# This file is subject to the terms and conditions defined in file 'LICENSE',
+# which is part of this source code package.
 
 TD=../..
 include ${TD}/setup.gmk
@@ -15,7 +19,7 @@ ${MBEDINC}:
 	@mkdir -p $@
 
 ${PLT}/library/%.a: ${PLT}
-	${MAKE} -C $< lib CC=${CC} AR=${AR} LD=${LD}
+	${MAKE} -C $< lib CC="${CC}" AR="${AR}" LD="${LD}"
 
 ${TD}/${BD}/lib/%.a: ${PLT}/library/%.a
 	@mkdir -p ${@D}
