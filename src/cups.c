@@ -1,31 +1,7 @@
-/*
- *  --- Revised 3-Clause BSD License ---
- *  Copyright (C) 2016-2019, SEMTECH (International) AG.
- *  All rights reserved.
- *
- *  Redistribution and use in source and binary forms, with or without modification,
- *  are permitted provided that the following conditions are met:
- *
- *      * Redistributions of source code must retain the above copyright notice,
- *        this list of conditions and the following disclaimer.
- *      * Redistributions in binary form must reproduce the above copyright notice,
- *        this list of conditions and the following disclaimer in the documentation
- *        and/or other materials provided with the distribution.
- *      * Neither the name of the copyright holder nor the names of its contributors
- *        may be used to endorse or promote products derived from this software
- *        without specific prior written permission.
- *
- *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- *  ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- *  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- *  DISCLAIMED. IN NO EVENT SHALL SEMTECH BE LIABLE FOR ANY DIRECT, INDIRECT,
- *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- *  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- *  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
- *  LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- *  OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- *  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// Copyright (C) 2016-2019 Semtech (International) AG. All rights reserved.
+//
+// This file is subject to the terms and conditions defined in file 'LICENSE',
+// which is part of this source code package.
 
 #include "s2conf.h"
 #include "sys.h"
@@ -226,8 +202,8 @@ static void cups_update_info (conn_t* _conn, int ev) {
                   "router",     '6', sys_eui(),
                   "cupsUri",    's', sys_uri(SYS_CRED_CUPS, SYS_CRED_REG),
                   "tcUri",      's', sys_uri(SYS_CRED_TC, SYS_CRED_REG),
-                  "cupsCredCrc",'u', sys_crcCred(SYS_CRED_CUPS),
-                  "tcCredCrc",  'u', sys_crcCred(SYS_CRED_TC),
+                  "cupsCredCrc",'u', sys_crcCred(SYS_CRED_CUPS, SYS_CRED_REG),
+                  "tcCredCrc",  'u', sys_crcCred(SYS_CRED_TC, SYS_CRED_REG),
                   "station",    's', CFG_version " " CFG_bdate,
                   "model",      's', CFG_platform,
                   "package",    's', version,
@@ -498,9 +474,13 @@ void sys_triggerCUPS (int delay) {
         sys_stopTC();
     }
 #endif // defined(CFG_cups_exclusive)
+    if( delay < 0 ) {
+	delay = CUPS_RESYNC_INTV/1000000;
+    }
     LOG(MOD_CUP|INFO, "Starting a CUPS session in %d seconds.", delay);
     sys_inState(SYSIS_CUPS_INTERACT);
     CUPS = cups_ini();
+    rt_clrTimer(&cups_sync_tmr);
     rt_setTimerCb(&CUPS->timeout, rt_seconds_ahead(delay), delayedCUPSstart);
 }
 

@@ -1,31 +1,7 @@
-/*
- *  --- Revised 3-Clause BSD License ---
- *  Copyright (C) 2016-2019, SEMTECH (International) AG.
- *  All rights reserved.
- *
- *  Redistribution and use in source and binary forms, with or without modification,
- *  are permitted provided that the following conditions are met:
- *
- *      * Redistributions of source code must retain the above copyright notice,
- *        this list of conditions and the following disclaimer.
- *      * Redistributions in binary form must reproduce the above copyright notice,
- *        this list of conditions and the following disclaimer in the documentation
- *        and/or other materials provided with the distribution.
- *      * Neither the name of the copyright holder nor the names of its contributors
- *        may be used to endorse or promote products derived from this software
- *        without specific prior written permission.
- *
- *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- *  ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- *  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- *  DISCLAIMED. IN NO EVENT SHALL SEMTECH BE LIABLE FOR ANY DIRECT, INDIRECT,
- *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- *  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- *  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
- *  LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- *  OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- *  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// Copyright (C) 2016-2019 Semtech (International) AG. All rights reserved.
+//
+// This file is subject to the terms and conditions defined in file 'LICENSE',
+// which is part of this source code package.
 
 #if defined(CFG_lgw1)
 
@@ -99,8 +75,18 @@ void ral_rps2lgw (rps_t rps, struct lgw_pkt_tx_s* p) {
     } else {
         p->modulation = MOD_LORA;
         p->datarate   = SF_MAP[rps_sf(rps)];
-        p->bandwidth  = BW_MAP[rps_bw(rps)];;
+        p->bandwidth  = BW_MAP[rps_bw(rps)];
     }
+}
+
+int ral_rps2bw (rps_t rps) {
+    assert(rps != RPS_ILLEGAL);
+    return BW_MAP[rps_bw(rps)];
+}
+
+int ral_rps2sf (rps_t rps) {
+    assert(rps != RPS_ILLEGAL);
+    return SF_MAP[rps_sf(rps)];
 }
 
 // Make a clock sync measurement:
@@ -168,12 +154,16 @@ int ral_tx (txjob_t* txjob, s2ctx_t* s2ctx, int nocca) {
     struct lgw_pkt_tx_s pkt_tx;
     memset(&pkt_tx, 0, sizeof(pkt_tx));
 
-    if( txjob->txflags & TXFLAG_BCN ) {
-        pkt_tx.tx_mode = ON_GPS;
-        pkt_tx.preamble = 10;
+    if( txjob->preamble == 0 ) {
+        if( txjob->txflags & TXFLAG_BCN ) {
+            pkt_tx.tx_mode = ON_GPS;
+            pkt_tx.preamble = 10;
+        } else {
+            pkt_tx.tx_mode = TIMESTAMPED;
+            pkt_tx.preamble = 8;
+        }
     } else {
-        pkt_tx.tx_mode = TIMESTAMPED;
-        pkt_tx.preamble = 8;
+        pkt_tx.preamble = txjob->preamble;
     }
     rps_t rps = s2e_dr2rps(s2ctx, txjob->dr);
     ral_rps2lgw(rps, &pkt_tx);
@@ -183,9 +173,9 @@ int ral_tx (txjob_t* txjob, s2ctx_t* s2ctx, int nocca) {
     pkt_tx.rf_power   = (float)(txjob->txpow - txpowAdjust) / TXPOW_SCALE;
     pkt_tx.coderate   = CR_LORA_4_5;
     pkt_tx.invert_pol = true;
-    pkt_tx.no_crc     = true;
+    pkt_tx.no_crc     = !txjob->addcrc;
     pkt_tx.no_header  = false;
-    pkt_tx.size = txjob->len;
+    pkt_tx.size       = txjob->len;
     memcpy(pkt_tx.payload, &s2ctx->txq.txdata[txjob->off], pkt_tx.size);
 
     // NOTE: nocca not possible to implement with current libloragw API
@@ -255,7 +245,7 @@ static void rxpolling (tmr_t* tmr) {
         rxjob->freq  = pkt_rx.freq_hz;
         rxjob->xtime = ts_xticks2xtime(pkt_rx.count_us, last_xtime);
         rxjob->rssi  = (u1_t)-pkt_rx.rssi;
-        rxjob->snr   = (s1_t)(pkt_rx.snr*8);
+        rxjob->snr   = (s1_t)(pkt_rx.snr*4);
         rps_t rps = ral_lgw2rps(&pkt_rx);
         rxjob->dr = s2e_rps2dr(&TC->s2ctx, rps);
         if( rxjob->dr == DR_ILLEGAL ) {
@@ -270,19 +260,19 @@ static void rxpolling (tmr_t* tmr) {
 }
 
 
-int ral_config (str_t hwspec, u4_t cca_region, char* json, int jsonlen) {
+int ral_config (str_t hwspec, u4_t cca_region, char* json, int jsonlen, chdefl_t* upchs) {
     if( strcmp(hwspec, "sx1301/1") != 0 ) {
-        LOG(ERROR, "Unsupported hwspec=%s", hwspec);
+        LOG(MOD_RAL|ERROR, "Unsupported hwspec=%s", hwspec);
         return 0;
     }
     ujdec_t D;
     uj_iniDecoder(&D, json, jsonlen);
     if( uj_decode(&D) ) {
-        LOG(ERROR, "Parsing of sx1301 channel setup JSON failed");
+        LOG(MOD_RAL|ERROR, "Parsing of sx1301 channel setup JSON failed");
         return 0;
     }
     if( uj_null(&D) ) {
-        LOG(ERROR, "sx1301_conf is null but a hw setup IS required - no fallbacks");
+        LOG(MOD_RAL|ERROR, "sx1301_conf is null but a hw setup IS required - no fallbacks");
         return 0;
     }
     uj_enterArray(&D);
@@ -291,10 +281,14 @@ int ral_config (str_t hwspec, u4_t cca_region, char* json, int jsonlen) {
         dbuf_t json = uj_skipValue(&D);
         if( slaveIdx == 0 ) {
             struct sx1301conf sx1301conf;
+            int status = 0;
 
-            if( sx1301conf_parse_setup(&sx1301conf, -1, hwspec, json.buf, json.bufsize) &&
-                sys_runRadioInit(sx1301conf.device) &&
-                sx1301conf_start(&sx1301conf, cca_region) ) {
+            if( (status = !sx1301conf_parse_setup(&sx1301conf, -1, hwspec, json.buf, json.bufsize) << 0) ||
+                (status = !sx1301conf_challoc(&sx1301conf, upchs)    << 1) ||
+                (status = !sys_runRadioInit(sx1301conf.device)       << 2) ||
+                (status = !sx1301conf_start(&sx1301conf, cca_region) << 3) ) {
+                LOG(MOD_RAL|ERROR, "ral_config failed with status 0x%02x", status);
+            } else {
                 // Radio started
                 txpowAdjust = sx1301conf.txpowAdjust;
                 pps_en = sx1301conf.pps;

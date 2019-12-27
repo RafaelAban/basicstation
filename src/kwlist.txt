@@ -1,3 +1,4 @@
+addcrc
 antenna_gain
 antenna_type
 api
@@ -6,6 +7,7 @@ AS923
 AS923JP
 asap
 AU915
+bcning
 beaconing
 cca
 CN470
@@ -14,6 +16,7 @@ command
 config
 dC
 DevEui
+DevEUI
 device
 device_mode
 diid
@@ -36,8 +39,10 @@ shell
 cmd
 freq
 Freq
+freqs
 freq_range
 gateway_conf
+getxtime
 gps
 gpstime
 hello
@@ -46,7 +51,9 @@ if
 IL915
 infos_uri
 JoinEui
+JoinEUI
 KR920
+layout
 log_file
 log_level
 log_rotate
@@ -65,6 +72,7 @@ no_gps_capture
 ontime
 pa_gain
 pdu
+preamble
 priority
 pps
 radio
@@ -100,6 +108,7 @@ threshold
 txpow_adjust
 txtime
 type
+upchannels
 updf
 upgrade
 uri
@@ -192,6 +201,19 @@ dsp_stat_interval
 aes_key
 calibration_temperature_celsius_room
 calibration_temperature_code_ad9361
+fpga_flavor
+SX1388_A11
+SX1388_SAGEMCOM
+SX1388_B11
+SX1388_KERLINK
+SX1388_C11
+SX1388_CISCO
+SX1388_E11
+SX1388_SEMTECH
+SX1388_F11
+SX1388_FOXCONN
+SX1388_L11
+SX1388_MULTITECH
 # ---------------------------------------
 # tekui config
 lbt_enable

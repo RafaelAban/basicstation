@@ -1,5 +1,10 @@
 # -*- makefile -*-
 
+# Copyright (C) 2016-2019 Semtech (International) AG. All rights reserved.
+#
+# This file is subject to the terms and conditions defined in file 'LICENSE',
+# which is part of this source code package.
+
 TD=../..
 include ${TD}/setup.gmk
 
@@ -11,12 +16,12 @@ VPATH+=${TD}/src $(patsubst %/, %, $(filter %/, $(wildcard ${TD}/src/*/))) $(pat
 SRCS = $(notdir $(wildcard ${VPATH:%=%/*.c}))
 ASRCS = $(notdir $(wildcard ${VPATH:%=%/*.S}))
 
-OBJS=${SRCS:.c=.o} ${ASRCS:.S=.s.o} ${FILES:=.o}
+OBJS=${SRCS:.c=.o} ${ASRCS:.S=.s.o} ${FILES:=.o} ${FILES:=.crc.o}
 DEPS=${SRCS:.c=.d}
 
 all: ${TARGET}
 
-../bin/station: station_main.c ../lib/libs2core.a
+../bin/station: station_main.c ../lib/libs2core.a $(wildcard ../lib/*.a)
 	@echo " [${ARCH}] CC   $@" ${NQ}
 	${Q}${CC} ${CFLAGS} ${LDFLAGS} $^ ${LIBS} -o $@
 	@echo " platform=${platform} variant=${variant} STATION EXE built"
@@ -77,6 +82,15 @@ perso.h: $(patsubst %.asc, %,${PERSO})
 %.str: %
 	@echo " [${ARCH}] STR  $@  " ${NQ}
 	${Q} cp $< $@ ; printf "\0" >> $@
+
+# Linking crcs (*.crc)
+%.crc.o: %.crc
+	@echo " [${ARCH}] OC   $@  " ${NQ}
+	${Q} ${OC} ${OCFLAGS} ${<F} $@
+
+%.crc: %
+	@echo " [${ARCH}] CRC  $@  " ${NQ}
+	${Q} ${TD}/build-local/bin/crc32 - < $<  | xxd -r | xxd -e | xxd -r > $@
 
 clean super-clean:
 	rm -rf *.o *.d *.gcno ../lib/libs2core.a
