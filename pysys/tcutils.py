@@ -1,29 +1,7 @@
-# --- Revised 3-Clause BSD License ---
-# Copyright (C) 2016-2019, SEMTECH (International) AG.
-# All rights reserved.
+# Copyright (C) 2016-2019 Semtech (International) AG. All rights reserved.
 #
-# Redistribution and use in source and binary forms, with or without modification,
-# are permitted provided that the following conditions are met:
-#
-#     * Redistributions of source code must retain the above copyright notice,
-#       this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above copyright notice,
-#       this list of conditions and the following disclaimer in the documentation
-#       and/or other materials provided with the distribution.
-#     * Neither the name of the copyright holder nor the names of its contributors
-#       may be used to endorse or promote products derived from this software
-#       without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL SEMTECH BE LIABLE FOR ANY DIRECT, INDIRECT,
-# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-# PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
-# LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
-# OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
-# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# This file is subject to the terms and conditions defined in file 'LICENSE',
+# which is part of this source code package.
 
 from typing import Any,Dict,List,Optional,Tuple
 import time
@@ -31,6 +9,7 @@ import re
 import base64
 import os
 import sys
+from datetime import datetime
 import struct
 import json
 import asyncio
@@ -45,43 +24,71 @@ import glob
 
 logger = logging.getLogger('_tcutils')
 
-handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.DEBUG)
-handler.setFormatter(logging.Formatter('%(asctime)s [%(name).8s:%(levelname).5s] %(message)s'))
-
-logger.setLevel(logging.DEBUG)
-logger.addHandler(handler)
+base_regions = {
+    "EU863" : {
+        'msgtype': 'router_config',
+        'region': 'EU863',
+        'DRs': [(12, 125, 0),
+            (11, 125, 0),
+            (10, 125, 0),
+            (9, 125, 0),
+            (8, 125, 0),
+            (7, 125, 0),
+            (7, 250, 0),
+            (0, 0, 0),
+            (-1, 0, 0),
+            (-1, 0, 0),
+            (-1, 0, 0),
+            (-1, 0, 0),
+            (-1, 0, 0),
+            (-1, 0, 0),
+            (-1, 0, 0),
+            (-1, 0, 0)],
+        'max_eirp': 16.0,
+        'protocol': 1,
+        'freq_range': [863000000, 870000000]
+    },
+    "US902": {
+        'msgtype': 'router_config',
+        'region': 'US902',
+        'DRs': [(10, 125, 0),
+            (9, 125, 0),
+            (8, 125, 0),
+            (7, 125, 0),
+            (8, 500, 0),
+            (-1, 0, 0),
+            (-1, 0, 0),
+            (-1, 0, 0),
+            (12, 500, 1),
+            (11, 500, 1),
+            (10, 500, 1),
+            (9, 500, 1),
+            (8, 500, 1),
+            (7, 500, 1),
+            (-1, 0, 0),
+            (-1, 0, 0)],
+        'max_eirp': 30.0,
+        'protocol': 1,
+        'freq_range': [902000000, 928000000]
+    }
+}
+base_regions["KR920"] = {
+        'msgtype': 'router_config',
+        'region': 'KR920',
+        'DRs': base_regions["EU863"]["DRs"],
+        'max_eirp': 23.0,
+        'protocol': 1,
+        'freq_range': [920900000, 923300000],
+    }
 
 
 router_config_EU863_6ch = {
-    'DRs': [[12, 125, 0],
-            [11, 125, 0],
-            [10, 125, 0],
-            [9, 125, 0],
-            [8, 125, 0],
-            [7, 125, 0],
-            [7, 250, 0],
-            [0, 0, 0],
-            [-1, 0, 0],
-            [-1, 0, 0],
-            [-1, 0, 0],
-            [-1, 0, 0],
-            [-1, 0, 0],
-            [-1, 0, 0],
-            [-1, 0, 0],
-            [-1, 0, 0]],
+    **base_regions['EU863'],
     'JoinEui': None,
     'NetID': None,
     'bcning': None,
     'config': {},
-    'nodc': True,
-    'freq_range': [863000000, 870000000],
     'hwspec': 'sx1301/1',
-    'max_eirp': 16.0,
-    'msgtype': 'router_config',
-    'protocol': 1,
-    'region': 'EU863',
-    'regionid': 1002,
     'sx1301_conf': [{'chan_FSK': {'enable': False},
                      'chan_Lora_std': {'enable': False},
                      'chan_multiSF_0': {'enable': True, 'if': -375000, 'radio': 0},
@@ -103,33 +110,12 @@ router_config_EU863_6ch = {
 }
 
 router_config_KR920 = {
-    'DRs': [(12, 125, 0),
-            (11, 125, 0),
-            (10, 125, 0),
-            (9, 125, 0),
-            (8, 125, 0),
-            (7, 125, 0),
-            (-1, 0, 0),
-            (-1, 0, 0),
-            (-1, 0, 0),
-            (-1, 0, 0),
-            (-1, 0, 0),
-            (-1, 0, 0),
-            (-1, 0, 0),
-            (-1, 0, 0),
-            (-1, 0, 0),
-            (-1, 0, 0)],
+    **base_regions['KR920'],
     'JoinEui': None,
     'NetID': None,
     'bcning': None,
     'config': {},
-    'freq_range': [920900000, 923300000],
     'hwspec': 'sx1301/1',
-    'max_eirp': 23.0,
-    'msgtype': 'router_config',
-    'protocol': 1,
-    'region': 'KR920',
-    'regionid': 8,
     'sx1301_conf': [{'chan_FSK': {'enable': False},
                      'chan_Lora_std': {'enable': False},
                      'chan_multiSF_0': {'enable': True, 'if': -200000, 'radio': 0},
@@ -147,6 +133,9 @@ router_config_KR920 = {
                    (922500000, 0, 5)]
 }
 
+GPS_EPOCH=datetime(1980,1,6)
+UPC_EPOCH=datetime(1970,1,1)
+UTC_GPS_LEAPS=18
 
 class ServerABC:
     def __init__(self, port:int=6000, tlsidentity:Optional[str]=None, tls_no_ca=False):
@@ -230,6 +219,7 @@ class Muxs(ServerABC):
         logger.debug('. MUXS connect: %s' % (path,))
         if path != '/router':
             await ws.close(1020)
+        self.ws = ws
         rconf = self.get_router_config()
         await ws.send(json.dumps(rconf))
         logger.debug('< MUXS: router_config.')
@@ -272,6 +262,19 @@ class Muxs(ServerABC):
     async def handle_version(self, ws, msg):
         logger.debug('> MUXS: Station Version: %r' % (msg,))
 
+    async def handle_timesync(self, ws, msg):
+        logger.debug("> MUXS: %r", msg)
+        await asyncio.sleep(0.05)
+        reply = {
+            'msgtype': 'timesync',
+            'gpstime': int(((datetime.utcnow() - GPS_EPOCH).total_seconds() + UTC_GPS_LEAPS)*1e6),
+            'txtime' : msg['txtime'],
+            'MuxTime': time.time(),
+        }
+        await asyncio.sleep(0.05)
+        logger.debug("< MUXS: %r", reply)
+        await ws.send(json.dumps(reply))
+
 
 class Cups(ServerABC):
     def __init__(self, tlsidentity:Optional[str]=None, tls_no_ca=False, homedir='.', tcdir='.'):
@@ -312,7 +315,7 @@ class Cups(ServerABC):
 
     def rdPEM(self, fn, fmt="PEM"):
         if not os.path.exists(fn):
-            return b''
+            return b'\x00'*4
         with open(fn,'rb') as f:
             return self.normalizePEM(f.read(), fmt)[0]
 

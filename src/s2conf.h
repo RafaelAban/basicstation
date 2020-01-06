@@ -1,31 +1,7 @@
-/*
- *  --- Revised 3-Clause BSD License ---
- *  Copyright (C) 2016-2019, SEMTECH (International) AG.
- *  All rights reserved.
- *
- *  Redistribution and use in source and binary forms, with or without modification,
- *  are permitted provided that the following conditions are met:
- *
- *      * Redistributions of source code must retain the above copyright notice,
- *        this list of conditions and the following disclaimer.
- *      * Redistributions in binary form must reproduce the above copyright notice,
- *        this list of conditions and the following disclaimer in the documentation
- *        and/or other materials provided with the distribution.
- *      * Neither the name of the copyright holder nor the names of its contributors
- *        may be used to endorse or promote products derived from this software
- *        without specific prior written permission.
- *
- *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- *  ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- *  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- *  DISCLAIMED. IN NO EVENT SHALL SEMTECH BE LIABLE FOR ANY DIRECT, INDIRECT,
- *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- *  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- *  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
- *  LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- *  OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- *  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// Copyright (C) 2016-2019 Semtech (International) AG. All rights reserved.
+//
+// This file is subject to the terms and conditions defined in file 'LICENSE',
+// which is part of this source code package.
 
 #ifndef _s2conf_h_
 #define _s2conf_h_
@@ -43,6 +19,7 @@
 #define DFLT_TC_SEND_BUFSZ        (80*1024)
 #define DFLT_RADIO_INIT_WAIT    "\"200ms\""
 #define DFLT_MAX_TXUNITS                  4
+#define DFLT_MAX_130X                     8
 #define DFLT_MAX_TXJOBS                 128
 #define DFLT_MAX_RXJOBS                  64
 #define DFLT_RADIODEV  "\"/dev/spidev?.0\""
@@ -60,6 +37,12 @@
 
 
 
+#if defined(CFG_platform_cisco) || defined(CFG_platform_rpi64)
+#undef DFLT_TX_MIN_GAP
+#undef DFLT_TX_AIM_GAP
+#define DFLT_TX_MIN_GAP          "\"10ms\""
+#define DFLT_TX_AIM_GAP          "\"60ms\""
+#endif // defined(CFG_platform_cisco)
 
 
 
@@ -114,6 +97,7 @@ enum {  RTT_SAMPLES     = 100 };
 enum {  MAX_WSSFRAMES   =  32 };
 enum {  MIN_UPJSON_SIZE = 384 };
 enum {  MAX_TXUNITS     = DFLT_MAX_TXUNITS };
+enum {  MAX_130X        = DFLT_MAX_130X };
 enum {  MAX_TXJOBS      = DFLT_MAX_TXJOBS  };
 enum {  MAX_TXFRAME_LEN =  255 };
 enum {  MAX_RXFRAME_LEN =  255 };
