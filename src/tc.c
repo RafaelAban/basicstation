@@ -1,31 +1,7 @@
-/*
- *  --- Revised 3-Clause BSD License ---
- *  Copyright (C) 2016-2019, SEMTECH (International) AG.
- *  All rights reserved.
- *
- *  Redistribution and use in source and binary forms, with or without modification,
- *  are permitted provided that the following conditions are met:
- *
- *      * Redistributions of source code must retain the above copyright notice,
- *        this list of conditions and the following disclaimer.
- *      * Redistributions in binary form must reproduce the above copyright notice,
- *        this list of conditions and the following disclaimer in the documentation
- *        and/or other materials provided with the distribution.
- *      * Neither the name of the copyright holder nor the names of its contributors
- *        may be used to endorse or promote products derived from this software
- *        without specific prior written permission.
- *
- *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- *  ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- *  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- *  DISCLAIMED. IN NO EVENT SHALL SEMTECH BE LIABLE FOR ANY DIRECT, INDIRECT,
- *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- *  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- *  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
- *  LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- *  OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- *  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// Copyright (C) 2016-2019 Semtech (International) AG. All rights reserved.
+//
+// This file is subject to the terms and conditions defined in file 'LICENSE',
+// which is part of this source code package.
 
 #include "s2conf.h"
 #include "sys.h"
@@ -303,12 +279,12 @@ void tc_free (tc_t* tc) {
 
 void tc_start (tc_t* tc) {
     assert(tc->tstate == TC_INI);
+    int tstate_err = TC_ERR_NOURI;
 
     str_t tcuri = sys_uri(SYS_CRED_TC, tc->credset);
     if( tcuri == NULL ) {
         LOG(MOD_TCE|ERROR, "No TC URI configured");
-        tc_done(tc, TC_ERR_NOURI);
-        return;
+        goto errexit;
     }
     // Use a WS buffer as temp place for host/port strings
     // Gets destroyed while ramping up connection
@@ -322,6 +298,7 @@ void tc_start (tc_t* tc) {
     if( ok == URI_TLS && !conn_setup_tls(&tc->ws, SYS_CRED_TC, tc->credset) ) {
         goto errexit;
     }
+    tstate_err = TC_ERR_FAILED;
     if( !ws_connect(&tc->ws, hostname, port, "/router-info") ) {
         LOG(MOD_TCE|ERROR, "TC connect failed - URI: %s", tcuri);
         goto errexit;
@@ -331,9 +308,8 @@ void tc_start (tc_t* tc) {
     tc->tstate = TC_INFOS_REQ_PEND;
     LOG(MOD_TCE|INFO, "Connecting to INFOS: %s", tcuri);
     return;
-
  errexit:
-    tc_done(tc, TC_ERR_FAILED);
+    tc_done(tc, tstate_err);
     return;
 }
 
@@ -341,10 +317,10 @@ void tc_start (tc_t* tc) {
 void tc_continue (tc_t* tc) {
     s1_t tstate = tc->tstate;
 
-    if( (tc->tstate == TC_ERR_REJECTED || tc->retries >= 10) && !sys_noCUPS ) {
-        LOG(MOD_TCE|INFO, "Router rejected or retry limit reached. Invoking CUPS in 30 seconds.");
+    if( (tstate == TC_ERR_REJECTED || tstate == TC_ERR_NOURI || tc->retries >= 10) && !sys_noCUPS ) {
+        LOG(MOD_TCE|INFO, "Router rejected or retry limit reached. Invoking CUPS.");
         sys_stopTC();
-        sys_triggerCUPS(30);
+        sys_triggerCUPS(-1);
         return;
     }
 

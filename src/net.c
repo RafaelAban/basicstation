@@ -1,31 +1,7 @@
-/*
- *  --- Revised 3-Clause BSD License ---
- *  Copyright (C) 2016-2019, SEMTECH (International) AG.
- *  All rights reserved.
- *
- *  Redistribution and use in source and binary forms, with or without modification,
- *  are permitted provided that the following conditions are met:
- *
- *      * Redistributions of source code must retain the above copyright notice,
- *        this list of conditions and the following disclaimer.
- *      * Redistributions in binary form must reproduce the above copyright notice,
- *        this list of conditions and the following disclaimer in the documentation
- *        and/or other materials provided with the distribution.
- *      * Neither the name of the copyright holder nor the names of its contributors
- *        may be used to endorse or promote products derived from this software
- *        without specific prior written permission.
- *
- *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- *  ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- *  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- *  DISCLAIMED. IN NO EVENT SHALL SEMTECH BE LIABLE FOR ANY DIRECT, INDIRECT,
- *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- *  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- *  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
- *  LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- *  OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- *  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// Copyright (C) 2016-2019 Semtech (International) AG. All rights reserved.
+//
+// This file is subject to the terms and conditions defined in file 'LICENSE',
+// which is part of this source code package.
 
 #include "sys.h"
 #include "uj.h"
@@ -571,9 +547,23 @@ static void ws_connected_r (aio_t* aio) {
     u1_t* p = &conn->rbuf[conn->rbeg];
     u1_t opcode = p[-1];
     switch(opcode) {
-    case WSHDR_PING:
+    case WSHDR_PING: {
+        int plen = conn->rend-conn->rbeg;
+        dbuf_t wbuf = ws_getSendbuf(conn, plen);
+        if( wbuf.buf == NULL ) {
+            LOG(MOD_AIO|WARNING, "[%d] Cannot respond to PING message of length %d", conn->netctx.fd, plen);
+            break;
+        }
+        wbuf.buf[0-WSHDR_INTRA] = plen>>8;
+        wbuf.buf[1-WSHDR_INTRA] = plen;
+        wbuf.buf[2-WSHDR_INTRA] = WSHDR_PONG;
+        conn->wfill += plen+WSHDR_INTRA;
+        memcpy(wbuf.buf, p, plen);
+        aio_set_wrfn(conn->aio, ws_connected_w);
+        break;
+    }
     case WSHDR_PONG: {
-        LOG(MOD_AIO|WARNING, "[%d] Ignoring WS ping/pong message", conn->netctx.fd);
+        LOG(MOD_AIO|WARNING, "[%d] Ignoring WS pong message", conn->netctx.fd);
         break;
     }
     case WSHDR_TEXT: {
@@ -1397,7 +1387,7 @@ static int validateAuthToken (str_t s) {
             return 0;
         if( p[1] == 0 )
             return 1;
-        s = p+1;  // next line
+        s = p = p+1;  // next line
     }
 }
 
